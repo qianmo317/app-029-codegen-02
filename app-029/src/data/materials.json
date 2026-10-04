@@ -78,6 +78,18 @@
     "pricePerWattCents": 180,
     "parallelNote": "超出常用档位（>400W）：需多电源并联/分区供电，建议按字分区，每区单独配电源"
   },
+  "wiring": {
+    "note": "分区线损校核参数：电阻率系数为铜导线 20℃ 近似值（Ω·mm²/m），线长含往返与现场余量；最远灯珠压降 = 2×电阻率×线长×电流/线径",
+    "resistivity": 0.02,
+    "wireReserveFactor": 1.1,
+    "wirePriceCentsPerM": 260,
+    "wires": [
+      { "id": "rvv-0p75", "spec": "RVV 2×0.75mm² 电源线", "areaMm2": 0.75, "ampacityA": 6 },
+      { "id": "rvv-1p0", "spec": "RVV 2×1.0mm² 电源线", "areaMm2": 1.0, "ampacityA": 10 },
+      { "id": "rvv-1p5", "spec": "RVV 2×1.5mm² 电源线", "areaMm2": 1.5, "ampacityA": 15 },
+      { "id": "rvv-2p5", "spec": "RVV 2×2.5mm² 电源线", "areaMm2": 2.5, "ampacityA": 25 }
+    ]
+  },
   "consumables": [
     {
       "id": "glue",

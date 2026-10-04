@@ -520,6 +520,12 @@ export function defaultProject(id: string, panel?: Partial<SignPanel>): Project 
       safetyFactor: 1.2,
       psuEfficiency: 0.85
     },
+    zone: {
+      mode: 'byChar',
+      maxDropRatio: 0.05,
+      maxModulesPerZone: 0,
+      autoShrinkForDrop: true
+    },
     panelMaterialId: 'acrylic_led',
     sheetId: 'acr-1220x2440x3',
     ledModuleId: 'led-12v-072-60',

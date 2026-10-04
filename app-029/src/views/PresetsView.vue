@@ -156,6 +156,35 @@ function removeSheet(i: number): void {
           <div class="ctl"><input type="number" v-model.number="preset.psu.pricePerWattCents" step="10" /></div>
         </div>
 
+        <h3 style="margin-top: 14px">分区线损校核（线径系数 / 余量 / 线径表）</h3>
+        <div class="field">
+          <label>线径系数 ρ（Ω·mm²/m，两位小数）</label>
+          <div class="ctl">
+            <input type="number" v-model.number="preset.wiring.resistivity" min="0.01" max="0.05" step="0.001" />
+            <span class="muted">铜导线 20℃ ≈ 0.02</span>
+          </div>
+        </div>
+        <div class="field">
+          <label>线长余量系数（两位小数）</label>
+          <div class="ctl"><input type="number" v-model.number="preset.wiring.wireReserveFactor" min="1" max="2" step="0.01" /></div>
+        </div>
+        <div class="field">
+          <label>电源线单价（分/米）</label>
+          <div class="ctl"><input type="number" v-model.number="preset.wiring.wirePriceCentsPerM" min="0" step="10" /></div>
+        </div>
+        <table>
+          <thead>
+            <tr><th>规格</th><th class="num">线径 mm²</th><th class="num">载流量 A</th></tr>
+          </thead>
+          <tbody>
+            <tr v-for="w in preset.wiring.wires" :key="w.id">
+              <td><input type="text" v-model="w.spec" style="width: 100%" /></td>
+              <td class="num"><input type="number" v-model.number="w.areaMm2" min="0.1" step="0.05" style="width: 70px" /></td>
+              <td class="num"><input type="number" v-model.number="w.ampacityA" min="1" step="0.5" style="width: 70px" /></td>
+            </tr>
+          </tbody>
+        </table>
+
         <h3 style="margin-top: 14px">胶与配件</h3>
         <table>
           <thead>

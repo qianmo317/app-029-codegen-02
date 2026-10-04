@@ -74,8 +74,14 @@ function toCsv(): void {
       </div>
 
       <div v-if="bom?.blocked" class="banner bad no-print">
-        <b>工艺风险拦截：</b>{{ bom.blockReasons.join('；') }}
-        <button class="primary" style="margin-left: 8px" @click="ack = true">已确认风险，继续出报价</button>
+        <template v-if="bom.hardBlocked">
+          <b>硬性校核不通过（分区功率/线径/压降或超板），不能确认放行：</b>{{ bom.blockReasons.join('；') }}
+          <router-link :to="`/light/${project.id}`"><button class="primary" style="margin-left: 8px">去 LED 分区页改方案</button></router-link>
+        </template>
+        <template v-else>
+          <b>工艺风险拦截：</b>{{ bom.blockReasons.join('；') }}
+          <button class="primary" style="margin-left: 8px" @click="ack = true">已确认风险，继续出报价</button>
+        </template>
       </div>
       <div v-else-if="ack" class="banner warn no-print">已确认工艺风险：最细笔画低于工艺下限的字符按加粗/换字体处理后再下单。</div>
 
@@ -209,6 +215,69 @@ function toCsv(): void {
               </tr>
             </tbody>
           </table>
+          <h3 style="margin-top: 12px" v-if="bom.zoning">供电分区与接线清单（{{ bom.zoning.modeLabel }}）</h3>
+          <table v-if="bom.zoning">
+            <thead>
+              <tr>
+                <th>区号</th>
+                <th>挂接字</th>
+                <th class="num">模组数</th>
+                <th class="num">额定 W</th>
+                <th class="num">电源</th>
+                <th class="num">线长 m</th>
+                <th>建议线径</th>
+                <th class="num">电流 A</th>
+                <th class="num">最远压降</th>
+                <th class="num">电源台数</th>
+                <th>结论</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="z in bom.zoning.zones" :key="z.no">
+                <td>第{{ z.no }}区</td>
+                <td class="muted" style="font-size: 12px">
+                  <span v-for="c in z.chars" :key="c.charIndex">「{{ c.char }}」×{{ c.modules }}{{ c.side !== '整字' ? '(' + c.side + ')' : '' }} </span>
+                </td>
+                <td class="num">{{ z.modules }}</td>
+                <td class="num">{{ z.ratedW.toFixed(2) }}</td>
+                <td class="num">{{ z.psuW ?? '超档' }}W</td>
+                <td class="num">{{ z.wireLenM.toFixed(2) }}</td>
+                <td>{{ z.wire.spec }}</td>
+                <td class="num">{{ z.currentA.toFixed(2) }}</td>
+                <td class="num">{{ z.dropV.toFixed(2) }}V<br /><span class="muted">{{ z.dropRatioPct.toFixed(2) }}%</span></td>
+                <td class="num">{{ z.psuW ? 1 : 0 }}</td>
+                <td :style="{ color: z.feasible ? 'var(--ok)' : 'var(--danger)' }">{{ z.feasible ? '通过' : '不通过' }}</td>
+              </tr>
+            </tbody>
+            <tfoot>
+              <tr>
+                <td>合计</td>
+                <td></td>
+                <td class="num">{{ bom.zoning.totalModules }}</td>
+                <td class="num">{{ bom.zoning.totalRatedW.toFixed(2) }}</td>
+                <td></td>
+                <td class="num">{{ bom.zoning.totalWireM.toFixed(2) }}</td>
+                <td colspan="3"></td>
+                <td class="num">{{ bom.zoning.psuCount }}</td>
+                <td></td>
+              </tr>
+            </tfoot>
+          </table>
+          <table v-if="bom.zoning && bom.zoning.splitChars.length" style="margin-top: 6px">
+            <thead>
+              <tr><th colspan="3">跨区字接法（车间逐字勾确认）</th></tr>
+              <tr><th>字</th><th>分区归属</th><th>接法</th></tr>
+            </thead>
+            <tbody>
+              <tr v-for="s in bom.zoning.splitChars" :key="s.charIndex">
+                <td>「{{ s.char }}」</td>
+                <td class="muted">{{ s.parts.map((p) => `第${p.zoneNo}区${p.modules}只(${p.side})`).join('，') }}</td>
+                <td class="muted" style="font-size: 12px">{{ s.instruction }}</td>
+              </tr>
+            </tbody>
+          </table>
+          <p class="muted mono" v-if="bom.zoning" style="margin-top: 6px">{{ bom.zoning.formulaNote }}</p>
+
           <p class="muted" style="margin-top: 10px">
             工艺要求：异形面板按外接矩形下料；笔画块数量决定分件数量；最细笔画低于工艺下限的字符需加粗或换字体；LED 布点沿外轮廓均匀分布。
           </p>

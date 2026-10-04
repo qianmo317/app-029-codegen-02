@@ -9,6 +9,7 @@ import type { BomResult, CompareRow } from './materials'
 import { yuan } from './materials'
 import type { LayoutResult } from './layout'
 import { alignLabel, mountingLabel } from './layout'
+import type { ZoningResult } from './zoning'
 import type { Project } from './types'
 
 export function bomGroupLabel(kind: string): string {
@@ -38,6 +39,7 @@ export interface QuoteDoc {
   total: string
   notes: string[]
   footer: string
+  zoning: ZoningResult | null
 }
 
 export function buildQuoteDoc(project: Project, layout: LayoutResult, bom: BomResult, fontLabel: string): QuoteDoc {
@@ -52,6 +54,10 @@ export function buildQuoteDoc(project: Project, layout: LayoutResult, bom: BomRe
     unitPrice: yuan(m.unitPriceCents),
     amount: yuan(m.amountCents)
   }))
+  const zoning = bom.zoning
+  const zoningNote = zoning
+    ? `供电分区（${zoning.modeLabel}）：${zoning.zoneCount} 区 / 电源 ${zoning.psuCount} 台，模组 ${zoning.totalModules} 只，线材合计 ${zoning.totalWireM}m；${zoning.feasible ? '各区压降与线径校核通过' : '存在校核不通过区，已拦截'}`
+    : ''
   return {
     title: '招牌字制作报价单',
     projectName: project.name,
@@ -68,9 +74,12 @@ export function buildQuoteDoc(project: Project, layout: LayoutResult, bom: BomRe
       `面板材料：${bom.panelMaterial.name}（${bom.panelMaterial.desc}）`,
       `亚克力拼版：${bom.nesting.sheetCount} 张 ${bom.sheet.spec}，利用率 ${(bom.nesting.utilization * 100).toFixed(1)}%`,
       `LED：布点长度 ${bom.led.perimeterTotalMm}mm，模组 ${bom.led.modules} 只，额定功率 ${bom.led.ratedW}W，建议电源 ${bom.led.suggestedPsu}`,
+      zoningNote,
+      ...(zoning?.splitChars.length ? [`跨区字 ${zoning.splitChars.length} 个（按位置分区）：${zoning.splitChars.map((s) => `「${s.char}」${s.parts.map((p) => `${p.modules}只入第${p.zoneNo}区`).join('、')}`).join('；')}`] : []),
       bom.led.note
     ].filter((s) => !!s),
-    footer: '本报价基于当前材料单价，有效期 30 天；含材料与加工费，不含安装与运输。'
+    footer: '本报价基于当前材料单价，有效期 30 天；含材料与加工费，不含安装与运输。',
+    zoning
   }
 }
 
@@ -121,6 +130,21 @@ export function exportQuoteXls(project: Project, layout: LayoutResult, bom: BomR
       .join('\n')}
     <tr><th colspan="6">工艺说明</th></tr>
     ${doc.notes.map((n) => `<tr><td colspan="6">${esc(n)}</td></tr>`).join('\n')}
+    ${
+      doc.zoning
+        ? `<tr><th colspan="6">供电分区与接线清单（${esc(doc.zoning.modeLabel)}）</th></tr>
+    <tr><th>区号</th><th>模组数(只)</th><th>额定/需求功率(W)</th><th>电源</th><th>线长(m)</th><th>建议线径/最远压降</th></tr>
+    ${doc.zoning.zones
+      .map(
+        (z) =>
+          `<tr><td>第${z.no}区</td><td>${z.modules}</td><td>${z.ratedW} / ${z.needW}</td><td>${z.psuW ?? '超档'}W × 1 台</td><td>${z.wireLenM}</td><td>${esc(z.wire.spec)} / ${z.dropV}V(${z.dropRatioPct}%)</td></tr>`
+      )
+      .join('\n')}
+    ${doc.zoning.splitChars
+      .map((s) => `<tr><td colspan="6">跨区字「${esc(s.char)}」：${esc(s.instruction)}</td></tr>`)
+      .join('\n')}`
+        : ''
+    }
     <tr><td colspan="6">${esc(doc.footer)}</td></tr>
   </table>`
   const html = `<html><head><meta charset="utf-8"></head><body>${table}</body></html>`
@@ -160,5 +184,79 @@ export function exportProcessCardCsv(project: Project, layout: LayoutResult, bom
   lines.push(`板材,${bom.sheet.spec}`)
   lines.push(`板数,${bom.nesting.sheetCount}`)
   lines.push(`利用率,${(bom.nesting.utilization * 100).toFixed(1)}%`)
+  if (bom.zoning) {
+    lines.push('')
+    lines.push(`供电分区与接线清单（${bom.zoning.modeLabel}）`)
+    lines.push('区号,模组数,额定功率W,电源需求W,电源档位W,电源台数,线长m,建议线径,电流A,最远压降V,压降限值V,结论,挂接字')
+    for (const z of bom.zoning.zones) {
+      lines.push(
+        [
+          `第${z.no}区`,
+          z.modules,
+          z.ratedW.toFixed(2),
+          z.needW.toFixed(2),
+          z.psuW ?? '超档',
+          z.psuCount,
+          z.wireLenM.toFixed(2),
+          z.wire.spec,
+          z.currentA.toFixed(2),
+          z.dropV.toFixed(2),
+          z.dropLimitV.toFixed(2),
+          z.feasible ? '通过' : '不通过：' + z.reasons.join('；'),
+          z.chars.map((c) => `${c.char}×${c.modules}(${c.side})`).join('、')
+        ].join(',')
+      )
+    }
+    for (const s of bom.zoning.splitChars) {
+      lines.push(`跨区字,「${s.char}」,${s.instruction}`)
+    }
+    lines.push(`分区校核口径,${bom.zoning.formulaNote}`)
+  }
   download(`${project.name || '招牌'}工艺卡.csv`, new Blob([`\ufeff${lines.join('\n')}`], { type: 'text/csv;charset=utf-8' }))
+}
+/** 单独导出分区接线清单 CSV（给现场分区接线用，按区号列模组数、线长、电源台数） */
+export function exportZoningCsv(project: Project, zoning: ZoningResult): void {
+  const lines: string[] = []
+  lines.push('供电分区与接线清单')
+  lines.push(`项目,${project.name}`)
+  lines.push(`分区走法,${zoning.modeLabel}`)
+  lines.push(`模组电压V,${zoning.voltageV}`)
+  lines.push('')
+  lines.push('区号,模组数,额定功率W,电源需求W,电源档位W,电源台数,线长m,建议线径,电流A,最远压降V,压降限值V,压降占比%,结论,挂接字')
+  for (const z of zoning.zones) {
+    lines.push(
+      [
+        `第${z.no}区`,
+        z.modules,
+        z.ratedW.toFixed(2),
+        z.needW.toFixed(2),
+        z.psuW ?? '超档',
+        z.psuW,
+        z.wireLenM.toFixed(2),
+        z.wire.spec,
+        z.currentA.toFixed(2),
+        z.dropV.toFixed(2),
+        z.dropLimitV.toFixed(2),
+        z.dropRatioPct.toFixed(2),
+        z.feasible ? '通过' : '不通过：' + z.reasons.join('；'),
+        z.chars.map((c) => `${c.char}×${c.modules}(${c.side})`).join('、')
+      ].join(',')
+    )
+  }
+  lines.push(
+    `合计,${zoning.totalModules},${zoning.totalRatedW.toFixed(2)},,,,${zoning.psuCount},${zoning.totalWireM.toFixed(2)},,,,,${zoning.feasible ? '全部通过' : '有不通过区'},`
+  )
+  lines.push('')
+  if (zoning.splitChars.length) {
+    lines.push('跨区字接法（车间逐字勾确认）')
+    for (const s of zoning.splitChars) {
+      lines.push(`「${s.char}」,${s.parts.map((p) => `第${p.zoneNo}区${p.modules}只(${p.side})`).join('，')},${s.instruction}`)
+    }
+    lines.push('')
+  }
+  for (const z of zoning.zones) {
+    if (!z.feasible) lines.push(`第${z.no}区改法,${z.remedies.join('；')}`)
+  }
+  lines.push(`校核口径,${zoning.formulaNote}`)
+  download(`${project.name || '招牌'}分区接线清单.csv`, new Blob([`﻿${lines.join('\n')}`], { type: 'text/csv;charset=utf-8' }))
 }

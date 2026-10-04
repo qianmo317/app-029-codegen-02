@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import type { LayoutResult } from '../logic/layout'
 import { ledDots } from '../logic/led'
+import type { ZoningResult } from '../logic/zoning'
 import type { Project } from '../logic/types'
 
 const props = withDefaults(
@@ -15,6 +16,8 @@ const props = withDefaults(
     showLed?: boolean
     night?: boolean
     activeChar?: number | null
+    /** 供电分区叠加：灯珠按区着色、画分区包围盒与电源出线口/最远灯珠连线 */
+    zoning?: ZoningResult | null
   }>(),
   {
     showDims: true,
@@ -23,7 +26,8 @@ const props = withDefaults(
     showMinStroke: false,
     showLed: false,
     night: false,
-    activeChar: null
+    activeChar: null,
+    zoning: null
   }
 )
 
@@ -89,7 +93,34 @@ const glyphs = computed<GlyphGroup[]>(() =>
   })
 )
 
-const dots = computed(() => (props.showLed ? ledDots(props.layout.chars, props.project.led.moduleSpacingMm) : []))
+const dots = computed(() => {
+  if (props.zoning) {
+    return props.zoning.dots.map((d, i) => ({ x: d.x, y: d.y, zoneNo: props.zoning!.dotZoneNo[i] }))
+  }
+  return props.showLed ? ledDots(props.layout.chars, props.project.led.moduleSpacingMm).map((d) => ({ x: d.x, y: d.y, zoneNo: 0 })) : []
+})
+
+const zoneColors = ['#1f6feb', '#e8710a', '#17864a', '#9c27b0', '#00838f', '#c62828', '#5d4037', '#3f51b5', '#827717', '#d81b60', '#00897b', '#6d4c41']
+function zoneColor(no: number): string {
+  return zoneColors[(no - 1) % zoneColors.length]
+}
+
+/** 各区最远灯珠（画电源出线口→最远灯珠的校核线） */
+const farthestDots = computed(() => {
+  const z = props.zoning
+  if (!z) return []
+  return z.zones.map((zn) => {
+    let far = { x: 0, y: 0, d: -1 }
+    for (let i = 0; i < z.dots.length; i++) {
+      if (z.dotZoneNo[i] !== zn.no) continue
+      const d = z.dots[i]
+      const dist = Math.hypot(d.x - zn.anchor.x, d.y - zn.anchor.y)
+      if (dist > far.d) far = { x: d.x, y: d.y, d: dist }
+    }
+    return { no: zn.no, x: far.x, y: far.y, anchor: zn.anchor, ok: zn.feasible }
+  })
+})
+
 const strokeMm = computed(() => Math.max(4, props.layout.sizeMm * 0.02))
 const overflow = computed(() => props.layout.overflowX || props.layout.overflowY)
 const markerR = computed(() => Math.max(panel.value.hMm, panel.value.wMm) * 0.012)
@@ -196,6 +227,65 @@ const markerR = computed(() => Math.max(panel.value.hMm, panel.value.wMm) * 0.01
         </g>
       </g>
 
+      <!-- 供电分区叠加：分区包围盒、电源出线口、最远灯珠校核线 -->
+      <g v-if="zoning">
+        <g v-for="z in zoning.zones" :key="`zb${z.no}`">
+          <rect
+            :x="z.bbox.x0 - labelSize * 0.6"
+            :y="z.bbox.y0 - labelSize * 0.6"
+            :width="z.bbox.x1 - z.bbox.x0 + labelSize * 1.2"
+            :height="z.bbox.y1 - z.bbox.y0 + labelSize * 1.2"
+            rx="4"
+            fill="none"
+            :stroke="zoneColor(z.no)"
+            :stroke-width="labelSize * 0.09"
+            stroke-dasharray="10 6"
+            :opacity="z.feasible ? 0.9 : 1"
+          />
+          <rect
+            :x="z.bbox.x0 - labelSize * 0.6"
+            :y="z.bbox.y0 - labelSize * 1.9"
+            :width="labelSize * 2.6"
+            :height="labelSize * 1.25"
+            rx="2"
+            :fill="zoneColor(z.no)"
+          />
+          <text
+            :x="z.bbox.x0 - labelSize * 0.6 + labelSize * 1.3"
+            :y="z.bbox.y0 - labelSize * 0.95"
+            class="svg-label"
+            text-anchor="middle"
+            fill="#fff"
+            :style="{ fontSize: labelSize * 0.85 + 'px' }"
+          >
+            {{ z.no }}区
+          </text>
+        </g>
+        <line
+          v-for="f in farthestDots"
+          :key="`zf${f.no}`"
+          :x1="f.anchor.x"
+          :y1="f.anchor.y"
+          :x2="f.x"
+          :y2="f.y"
+          :stroke="f.ok ? '#5b6577' : '#c62828'"
+          :stroke-width="labelSize * 0.05"
+          stroke-dasharray="4 4"
+          opacity="0.8"
+        />
+        <g v-for="z in zoning.zones" :key="`za${z.no}`">
+          <rect
+            :x="z.anchor.x - markerR * 0.7"
+            :y="z.anchor.y - markerR * 0.7"
+            :width="markerR * 1.4"
+            :height="markerR * 1.4"
+            :fill="zoneColor(z.no)"
+            stroke="#fff"
+            :stroke-width="labelSize * 0.06"
+          />
+        </g>
+      </g>
+
       <!-- LED 布点 -->
       <circle
         v-for="(d, i) in dots"
@@ -203,7 +293,7 @@ const markerR = computed(() => Math.max(panel.value.hMm, panel.value.wMm) * 0.01
         :cx="d.x"
         :cy="d.y"
         :r="markerR * 0.55"
-        :fill="night ? '#ffd166' : '#e8710a'"
+        :fill="zoning ? zoneColor(d.zoneNo) : night ? '#ffd166' : '#e8710a'"
         :opacity="0.9"
       />
 

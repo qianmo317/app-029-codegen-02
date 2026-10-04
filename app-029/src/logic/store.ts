@@ -6,11 +6,23 @@
 import materialsData from '../data/materials.json'
 import type { Preset } from './materials'
 import { defaultProject } from './layout'
-import type { Project } from './types'
+import type { Project, ZoneCfg } from './types'
 
 const KEY_PROJECTS = 'app029.projects.v1'
 const KEY_PRESET = 'app029.preset.v1'
 const KEY_PREFS = 'app029.prefs.v1'
+
+const DEFAULT_ZONE: ZoneCfg = { mode: 'byChar', maxDropRatio: 0.05, maxModulesPerZone: 0, autoShrinkForDrop: true }
+
+/** 旧版本项目没有 zone 字段：补默认分区设置（走法默认按字逐个） */
+function normalizeProject(p: Project): Project {
+  if (!p.zone) p.zone = { ...DEFAULT_ZONE }
+  if (!p.zone.mode) p.zone.mode = 'byChar'
+  if (typeof p.zone.maxDropRatio !== 'number') p.zone.maxDropRatio = DEFAULT_ZONE.maxDropRatio
+  if (typeof p.zone.maxModulesPerZone !== 'number') p.zone.maxModulesPerZone = DEFAULT_ZONE.maxModulesPerZone
+  if (typeof p.zone.autoShrinkForDrop !== 'boolean') p.zone.autoShrinkForDrop = DEFAULT_ZONE.autoShrinkForDrop
+  return p
+}
 
 export interface Prefs {
   defaultFontId: string
@@ -37,7 +49,7 @@ function writeJson(key: string, value: unknown): void {
 }
 
 export function listProjects(): Project[] {
-  const list = readJson<Project[]>(KEY_PROJECTS, [])
+  const list = readJson<Project[]>(KEY_PROJECTS, []).map(normalizeProject)
   return list.sort((a, b) => b.updatedAt - a.updatedAt)
 }
 
@@ -93,6 +105,7 @@ function mergePreset(base: Preset, patch: Partial<Preset>): Preset {
   if (patch.acrylicSheets) out.acrylicSheets = patch.acrylicSheets
   if (patch.ledModules) out.ledModules = patch.ledModules
   if (patch.psu) out.psu = { ...out.psu, ...patch.psu }
+  if (patch.wiring) out.wiring = { ...out.wiring, ...patch.wiring, wires: patch.wiring.wires ?? out.wiring.wires }
   if (patch.consumables) out.consumables = patch.consumables
   if (patch.labor) out.labor = patch.labor
   if (patch.panelMaterials) out.panelMaterials = patch.panelMaterials

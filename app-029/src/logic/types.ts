@@ -55,6 +55,20 @@ export interface LedCfg {
   psuEfficiency: number
 }
 
+/** 分区走法：按字逐个（字形完整）/ 按面板位置就近（走线短，允许跨字） */
+export type ZoneMode = 'byChar' | 'byPosition'
+
+/** 分区与线损校核参数（每个项目记住选定走法，换规格重划时沿用） */
+export interface ZoneCfg {
+  mode: ZoneMode
+  /** 允许的最远灯珠压降占比（相对模组电压，如 0.05 = 5%） */
+  maxDropRatio: number
+  /** 每区最多挂几个模组（按电源接线端口/经验给的数量上限，0 = 不限） */
+  maxModulesPerZone: number
+  /** 分区时是否允许为满足线损自动缩小分区（false=只按功率上限划区，线损不达标直接拦截） */
+  autoShrinkForDrop: boolean
+}
+
 export interface LedResult {
   /** 总布点长度（各连通域外轮廓周长之和） */
   perimeterTotalMm: number
@@ -122,6 +136,8 @@ export interface Project {
   name: string
   layout: LayoutDef
   led: LedCfg
+  /** 分区与线损校核设置（走法一经选定，换模组/电源规格重划时沿用） */
+  zone: ZoneCfg
   /** 面板材料预设 id（见 materials.json 的 panelMaterials） */
   panelMaterialId: string
   sheetId: string

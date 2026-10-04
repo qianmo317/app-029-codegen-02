@@ -62,13 +62,16 @@ export interface LedCharRow {
   ratedW: number
 }
 
-/** 逐字 LED 用量明细 */
+/** 逐字 LED 用量明细（模组数按每个连通域外轮廓分别向上取整，与分区布点口径一致） */
 export function ledRows(chars: PlacedChar[], cfg: LedCfg): LedCharRow[] {
   const safe = cfg.safetyFactor
+  const spacing = Math.max(1, cfg.moduleSpacingMm)
   return chars.map((c) => {
     const k = c.geom.inkW > 0 ? c.inkW / c.geom.inkW : 0
-    const per = c.geom.outerPerimeter * k
-    const modules = Math.ceil(per / Math.max(1, cfg.moduleSpacingMm) - 1e-9)
+    const outerRings = c.geom.rings.filter((r) => !r.isHole)
+    const per = outerRings.reduce((s, r) => s + r.perimeter * k, 0)
+    // 每个笔画块单独 ceil（不足一颗补足一颗），再合计
+    const modules = outerRings.reduce((s, r) => s + Math.max(1, Math.ceil((r.perimeter * k) / spacing - 1e-9)), 0)
     return {
       char: c.char,
       blocks: c.geom.strokeBlocks,
@@ -84,12 +87,23 @@ export interface LedDot {
   y: number
 }
 
+/** 带归属信息的模组灯珠点（分区/线损校核按「点」为最小不可拆单位） */
+export interface LedDotTagged extends LedDot {
+  /** 所在字的序号（PlacedChar.index） */
+  charIndex: number
+  char: string
+  line: number
+  /** 所在笔画块（连通域）序号 */
+  block: number
+}
+
 /**
- * LED 布点示意：沿每个连通域的外轮廓按模组间距均匀布点。
- * 输入为已排版字形（面板 mm 坐标），用于预览叠加显示。
+ * LED 布点：沿每个连通域的外轮廓按模组间距均匀布点。
+ * 每环点数 N = max(1, ceil(周长 / 间距))（与采购口径一致：不足一颗补足一颗，不静默取整）。
+ * 输入为已排版字形（面板 mm 坐标），返回点带字/笔画块/行归属，供分区与预览共用。
  */
-export function ledDots(chars: PlacedChar[], spacingMm: number): LedDot[] {
-  const dots: LedDot[] = []
+export function ledDotsTagged(chars: PlacedChar[], spacingMm: number): LedDotTagged[] {
+  const dots: LedDotTagged[] = []
   const spacing = Math.max(20, spacingMm)
   for (const c of chars) {
     if (c.missing || c.blank) continue
@@ -102,7 +116,7 @@ export function ledDots(chars: PlacedChar[], spacingMm: number): LedDot[] {
       const ring = r.ring
       // 沿周长等距采样
       const per = r.perimeter * k
-      const n = Math.max(1, Math.round(per / spacing))
+      const n = Math.max(1, Math.ceil(per / spacing - 1e-9))
       const step = per / n
       let acc = 0
       let next = step * 0.5
@@ -112,7 +126,14 @@ export function ledDots(chars: PlacedChar[], spacingMm: number): LedDot[] {
         const segLen = Math.hypot(b.x - a.x, b.y - a.y) * k
         while (next <= acc + segLen && segLen > 1e-9) {
           const t = (next - acc) / segLen
-          dots.push({ x: ox + (a.x + (b.x - a.x) * t) * k, y: oy + (a.y + (b.y - a.y) * t) * k })
+          dots.push({
+            x: ox + (a.x + (b.x - a.x) * t) * k,
+            y: oy + (a.y + (b.y - a.y) * t) * k,
+            charIndex: c.index,
+            char: c.char,
+            line: c.line,
+            block: r.block
+          })
           next += step
         }
         acc += segLen
@@ -120,4 +141,12 @@ export function ledDots(chars: PlacedChar[], spacingMm: number): LedDot[] {
     }
   }
   return dots
+}
+
+/**
+ * LED 布点示意：沿每个连通域的外轮廓按模组间距均匀布点。
+ * 输入为已排版字形（面板 mm 坐标），用于预览叠加显示。
+ */
+export function ledDots(chars: PlacedChar[], spacingMm: number): LedDot[] {
+  return ledDotsTagged(chars, spacingMm)
 }

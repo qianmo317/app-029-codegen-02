@@ -19,6 +19,7 @@ const preset = session.preset
 const ack = ref(false)
 
 const bom = computed(() => (project.value && layout.value ? buildBom(project.value, layout.value, preset.value, { acknowledgeThinStroke: ack.value }) : null))
+const zoning = computed(() => bom.value?.zoning ?? null)
 const sumCheck = computed(() => (bom.value ? assertBomSum(bom.value) : null))
 const compare = computed(() =>
   project.value && layout.value && bom.value ? compareMaterials(project.value, layout.value, preset.value, bom.value) : []
@@ -57,12 +58,21 @@ function processCard(): void {
 
     <template v-else>
       <div v-if="bom?.blocked" class="banner bad">
-        <b>工艺风险拦截：</b>
-        <ul class="notes" style="color: inherit">
-          <li v-for="(r, i) in bom.blockReasons" :key="i">{{ r }}</li>
-        </ul>
-        <button class="primary" style="margin-top: 6px" @click="ack = true">已确认工艺风险，继续出报价</button>
-        <span class="muted" style="margin-left: 8px">未确认前不出报价单（避免做不出来的活）</span>
+        <template v-if="bom.hardBlocked">
+          <b>硬性校核不通过，不允许「确认风险」放行：</b>
+          <ul class="notes" style="color: inherit">
+            <li v-for="(r, i) in bom.blockReasons" :key="i">{{ r }}</li>
+          </ul>
+          <router-link :to="`/light/${project.id}`"><button class="primary" style="margin-top: 6px">去 LED 分区页改方案（换更粗的线 / 缩小分区 / 换大电源）</button></router-link>
+        </template>
+        <template v-else>
+          <b>工艺风险拦截：</b>
+          <ul class="notes" style="color: inherit">
+            <li v-for="(r, i) in bom.blockReasons" :key="i">{{ r }}</li>
+          </ul>
+          <button class="primary" style="margin-top: 6px" @click="ack = true">已确认工艺风险，继续出报价</button>
+          <span class="muted" style="margin-left: 8px">未确认前不出报价单（避免做不出来的活）</span>
+        </template>
       </div>
 
       <div class="split">
@@ -151,6 +161,44 @@ function processCard(): void {
               </tfoot>
             </table>
             <p class="muted">{{ sumCheck?.message }}</p>
+          </div>
+
+          <div class="card" style="margin-top: 14px">
+            <header>
+              <h2>供电分区与线损（随材料用量走）</h2>
+              <span class="hint">分区结果已计入下方 LED 模组、电源与电源线数量</span>
+            </header>
+            <div v-if="zoning">
+              <div class="kv-list">
+                <span class="muted">分区走法</span><span>{{ zoning.modeLabel }}</span>
+                <span class="muted">供电区数</span><span class="mono">{{ zoning.zoneCount }} 区（每区 1 台电源，共 {{ zoning.psuCount }} 台）</span>
+                <span class="muted">分区模组合计</span><span class="mono">{{ zoning.totalModules }} 只 / {{ zoning.totalRatedW.toFixed(2) }}W</span>
+                <span class="muted">电源线合计</span><span class="mono">{{ zoning.totalWireM.toFixed(2) }} m</span>
+                <span class="muted">跨区字</span><span>{{ zoning.splitChars.length }} 个{{ zoning.splitChars.length ? '：' + zoning.splitChars.map((s) => '「' + s.char + '」').join('') : '' }}</span>
+                <span class="muted">校核结论</span>
+                <span :style="{ color: zoning.feasible ? 'var(--ok)' : 'var(--danger)', fontWeight: 700 }">
+                  {{ zoning.feasible ? '各区功率/线径/压降全部通过' : '有不通过区，已拦截（见 LED 分区页改法）' }}
+                </span>
+              </div>
+              <table style="margin-top: 8px">
+                <thead>
+                  <tr><th>区号</th><th class="num">模组数</th><th class="num">线长 m</th><th class="num">电源档位 W</th><th class="num">电源台数</th><th>建议线径</th><th class="num">最远压降</th></tr>
+                </thead>
+                <tbody>
+                  <tr v-for="z in zoning.zones" :key="z.no">
+                    <td>第{{ z.no }}区</td>
+                    <td class="num">{{ z.modules }}</td>
+                    <td class="num">{{ z.wireLenM.toFixed(2) }}</td>
+                    <td class="num">{{ z.psuW ?? '超档' }}</td>
+                    <td class="num">{{ z.psuW ? 1 : 0 }}</td>
+                    <td>{{ z.wire.spec }}</td>
+                    <td class="num">{{ z.dropV.toFixed(2) }}V（{{ z.dropRatioPct.toFixed(2) }}%）</td>
+                  </tr>
+                </tbody>
+              </table>
+              <router-link :to="`/light/${project.id}`"><button style="margin-top: 8px">去 LED 分区页调整走法 / 看预览</button></router-link>
+            </div>
+            <p v-else class="muted">当前面板方案不含 LED（非发光材质），无供电分区。</p>
           </div>
 
           <div class="card" style="margin-top: 14px">
