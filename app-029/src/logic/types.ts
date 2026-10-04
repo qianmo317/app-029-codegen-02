@@ -73,6 +73,45 @@ export interface LedResult {
   psuUnitW: number
 }
 
+/** 分区走法（二选一，选定后换模组/电源重划沿用同一走法） */
+export type ZoneStrategy = 'byChar' | 'byProximity'
+
+/**
+ * 分区与线损校核参数。
+ * 所有线损相关数值（分区规模、线径系数、压降）一律保留两位小数后再比较，
+ * 避免浮点误差把结果算到界线外。
+ */
+export interface ZoneCfg {
+  /** 分区走法：按字逐个 / 按面板位置就近 */
+  strategy: ZoneStrategy
+  /** 选定电源档位（W）；'auto' = 按分区结果自动选最省的标准档位 */
+  psuTierW: number | 'auto'
+  /** 电源可用功率比例（降额使用，默认 0.80） */
+  usableRatio: number
+  /** 允许的最远灯珠压降上限（V，默认 0.60） */
+  maxDropV: number
+  /** 线径系数：铜导线电阻率 Ω·mm²/m（默认 0.02，两位小数） */
+  resistivity: number
+  /** 每区引线（电源到首灯）长度 mm（默认 300） */
+  feederMm: number
+  /** 上一次确认采用的划分快照（用于列出重划差别） */
+  baseline: {
+    strategy: ZoneStrategy
+    psuTierW: number | 'auto'
+    signature: string
+    zones: Array<{
+      zoneNo: number
+      psuTierW: number
+      charKeys: string[]
+      modules: number
+      loadW: number
+      wireMm: number
+      dropV: number
+      wireSpec: string
+    }>
+  } | null
+}
+
 export type MaterialKind = 'acrylic' | 'led_module' | 'psu' | 'glue' | 'labor'
 
 export interface Material {
@@ -122,6 +161,8 @@ export interface Project {
   name: string
   layout: LayoutDef
   led: LedCfg
+  /** 供电分区与线损校核配置（见 zoning.ts） */
+  zone: ZoneCfg
   /** 面板材料预设 id（见 materials.json 的 panelMaterials） */
   panelMaterialId: string
   sheetId: string

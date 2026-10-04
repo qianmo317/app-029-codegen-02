@@ -15,6 +15,11 @@ const props = withDefaults(
     showLed?: boolean
     night?: boolean
     activeChar?: number | null
+    showZones?: boolean
+    /** atomKey（字序-块序）→ 区号 */
+    zoneMap?: Map<string, number> | null
+    zoneCount?: number
+    feedPoints?: Array<{ zoneNo: number; x: number; y: number }>
   }>(),
   {
     showDims: true,
@@ -23,7 +28,11 @@ const props = withDefaults(
     showMinStroke: false,
     showLed: false,
     night: false,
-    activeChar: null
+    activeChar: null,
+    showZones: false,
+    zoneMap: null,
+    zoneCount: 0,
+    feedPoints: () => []
   }
 )
 
@@ -48,7 +57,7 @@ interface GlyphGroup {
   mode: string
   missing: boolean
   pathData: string
-  blocks: Array<{ index: number; d: string; color: string }>
+  blocks: Array<{ index: number; d: string; color: string; atomKey: string; zoneNo: number | null }>
   minStroke: number
   minStrokePoint: { x: number; y: number } | null
   outline: boolean
@@ -63,11 +72,17 @@ const glyphs = computed<GlyphGroup[]>(() =>
       arr.push(r.pathData)
       byBlock.set(r.block, arr)
     }
-    const blocks = [...byBlock.entries()].map(([index, d]) => ({
-      index,
-      d: d.join(''),
-      color: blockColors[index % blockColors.length]
-    }))
+    const blocks = [...byBlock.entries()].map(([index, d]) => {
+      const atomKey = `${i}-${index}`
+      const zoneNo = props.showZones && props.zoneMap?.has(atomKey) ? (props.zoneMap.get(atomKey) as number) : null
+      return {
+        index,
+        d: d.join(''),
+        color: zoneColor(zoneNo) ?? blockColors[index % blockColors.length],
+        atomKey,
+        zoneNo
+      }
+    })
     return {
       index: i,
       char: c.char,
@@ -93,6 +108,12 @@ const dots = computed(() => (props.showLed ? ledDots(props.layout.chars, props.p
 const strokeMm = computed(() => Math.max(4, props.layout.sizeMm * 0.02))
 const overflow = computed(() => props.layout.overflowX || props.layout.overflowY)
 const markerR = computed(() => Math.max(panel.value.hMm, panel.value.wMm) * 0.012)
+
+const zonePalette = ['#1f6feb', '#e8710a', '#17864a', '#9c27b0', '#00838f', '#c62828', '#5d4037', '#3f51b5', '#827717', '#6d4c41']
+function zoneColor(zoneNo: number | null): string | null {
+  if (zoneNo === null) return null
+  return zonePalette[(zoneNo - 1) % zonePalette.length]
+}
 </script>
 
 <template>
@@ -140,7 +161,7 @@ const markerR = computed(() => Math.max(panel.value.hMm, panel.value.wMm) * 0.01
         :transform="`translate(${g.x} ${g.y}) scale(${g.scale}) translate(${-g.bx0} ${-g.by0})`"
       >
         <template v-if="!g.missing && g.pathData">
-          <template v-if="showBlocks">
+          <template v-if="showBlocks || showZones">
             <path
               v-for="b in g.blocks"
               :key="b.index"
@@ -148,6 +169,8 @@ const markerR = computed(() => Math.max(panel.value.hMm, panel.value.wMm) * 0.01
               :fill="night ? 'rgba(190,220,255,0.75)' : b.color"
               fill-rule="evenodd"
               :opacity="activeChar === null || activeChar === g.index ? 0.92 : 0.28"
+              :stroke="showZones ? (night ? '#0b1626' : '#ffffff') : 'none'"
+              :stroke-width="showZones ? labelSize * 0.05 : 0"
             />
           </template>
           <template v-else>
@@ -206,6 +229,38 @@ const markerR = computed(() => Math.max(panel.value.hMm, panel.value.wMm) * 0.01
         :fill="night ? '#ffd166' : '#e8710a'"
         :opacity="0.9"
       />
+
+      <!-- 分区电源落点 + 区号 -->
+      <g v-if="showZones">
+        <g v-for="f in feedPoints" :key="`zp${f.zoneNo}`">
+          <line
+            :x1="f.x"
+            :y1="f.y"
+            :x2="f.x"
+            :y2="f.y - markerR * 2.6"
+            :stroke="zoneColor(f.zoneNo) ?? '#333'"
+            :stroke-width="labelSize * 0.12"
+          />
+          <rect
+            :x="f.x - markerR * 1.15"
+            :y="f.y - markerR * 3.6"
+            :width="markerR * 2.3"
+            :height="markerR * 2.3"
+            rx="2"
+            :fill="zoneColor(f.zoneNo) ?? '#333'"
+          />
+          <text
+            :x="f.x"
+            :y="f.y - markerR * 1.95"
+            class="svg-label"
+            text-anchor="middle"
+            fill="#fff"
+            :style="{ fontSize: markerR * 1.7 + 'px', fontWeight: 700 }"
+          >
+            {{ f.zoneNo }}
+          </text>
+        </g>
+      </g>
 
       <!-- 留边指示 -->
       <g v-if="showMargins && layout.chars.length">

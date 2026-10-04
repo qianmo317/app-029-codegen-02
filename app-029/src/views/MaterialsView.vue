@@ -18,7 +18,12 @@ const layout = session.layout
 const preset = session.preset
 const ack = ref(false)
 
-const bom = computed(() => (project.value && layout.value ? buildBom(project.value, layout.value, preset.value, { acknowledgeThinStroke: ack.value }) : null))
+const bom = computed(() =>
+  project.value && layout.value
+    ? buildBom(project.value, layout.value, preset.value, { acknowledgeThinStroke: ack.value, acknowledgeZoning: ackZone.value })
+    : null
+)
+const ackZone = ref(false)
 const sumCheck = computed(() => (bom.value ? assertBomSum(bom.value) : null))
 const compare = computed(() =>
   project.value && layout.value && bom.value ? compareMaterials(project.value, layout.value, preset.value, bom.value) : []
@@ -61,8 +66,10 @@ function processCard(): void {
         <ul class="notes" style="color: inherit">
           <li v-for="(r, i) in bom.blockReasons" :key="i">{{ r }}</li>
         </ul>
-        <button class="primary" style="margin-top: 6px" @click="ack = true">已确认工艺风险，继续出报价</button>
-        <span class="muted" style="margin-left: 8px">未确认前不出报价单（避免做不出来的活）</span>
+        <div class="row" style="margin-top: 6px">
+          <button class="primary" @click="ack = true; ackZone = true">已知悉全部风险（含分区/线损），继续出报价草稿</button>
+          <span class="muted" style="margin-left: 8px">未确认前不出报价单；分区问题建议先回 LED 页按改法调整（换粗线/缩分区/换大电源）</span>
+        </div>
       </div>
 
       <div class="split">

@@ -6,6 +6,7 @@
 import materialsData from '../data/materials.json'
 import type { Preset } from './materials'
 import { defaultProject } from './layout'
+import { normalizeZoneCfg } from './zoning'
 import type { Project } from './types'
 
 const KEY_PROJECTS = 'app029.projects.v1'
@@ -16,6 +17,12 @@ export interface Prefs {
   defaultFontId: string
   defaultWeight: number
   nightPreview: boolean
+}
+
+/** 兼容旧版本项目：补齐分区配置（线损参数按预设/默认值规整到两位小数） */
+function migrateProject(p: Project): Project {
+  const wiring = (materialsData as unknown as Preset).wiring
+  return { ...p, zone: normalizeZoneCfg(p.zone as Project['zone'] | undefined, wiring) }
 }
 
 function readJson<T>(key: string, fallback: T): T {
@@ -37,7 +44,7 @@ function writeJson(key: string, value: unknown): void {
 }
 
 export function listProjects(): Project[] {
-  const list = readJson<Project[]>(KEY_PROJECTS, [])
+  const list = readJson<Project[]>(KEY_PROJECTS, []).map(migrateProject)
   return list.sort((a, b) => b.updatedAt - a.updatedAt)
 }
 
@@ -94,6 +101,7 @@ function mergePreset(base: Preset, patch: Partial<Preset>): Preset {
   if (patch.ledModules) out.ledModules = patch.ledModules
   if (patch.psu) out.psu = { ...out.psu, ...patch.psu }
   if (patch.consumables) out.consumables = patch.consumables
+  if (patch.wiring) out.wiring = { ...out.wiring, ...patch.wiring, gauges: patch.wiring.gauges ?? out.wiring.gauges }
   if (patch.labor) out.labor = patch.labor
   if (patch.panelMaterials) out.panelMaterials = patch.panelMaterials
   return out

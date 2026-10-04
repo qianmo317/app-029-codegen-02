@@ -10,6 +10,7 @@ import { computeLayout, defaultProject, textToItems, type LayoutResult } from '.
 import { assertBomSum, buildBom, compareMaterials, defaultPreset, type Preset } from './materials'
 import { nestPieces, type Piece } from './nesting'
 import { runBlockCount, type BlockCountResult } from './testRunner'
+import { diffZoning, planZoning, r2 as round2z, toSnapshot } from './zoning'
 import type { LayoutDef, Project } from './types'
 import type { Ring } from './geometry'
 import { pointInRings } from './geometry'
@@ -375,6 +376,145 @@ export async function runAcceptance(preset: Preset = defaultPreset): Promise<Acc
       pass: cmp.every((c) => c.totalCents === c.panelCents + c.ledCents + c.psuCents + c.accessoryCents + c.laborCents),
       detail: `${cmp.length} 种材质`,
       evidence: cmp.map((c) => `${c.name}：面板 ${(c.panelCents / 100).toFixed(2)} + LED ${(c.ledCents / 100).toFixed(2)} + 电源 ${(c.psuCents / 100).toFixed(2)} + 配件 ${(c.accessoryCents / 100).toFixed(2)} + 加工 ${(c.laborCents / 100).toFixed(2)} = ¥${(c.totalCents / 100).toFixed(2)}`)
+    })
+  }
+
+  // ---------- 11. 供电分区与线损校核 ----------
+  {
+    const ev: string[] = []
+    const p = makeProject('acc11', '广告招牌制作工程部', 300, 'center', { wMm: 6000, hMm: 1000, frameMm: 60 })
+    const lay = computeLayout(p.layout)
+    const wiring = { ...preset.wiring }
+    // 用 12V/1.44W 双灯模组（数量级更大，更容易触发分区与线损）
+    p.ledModuleId = 'led-12v-144-120'
+    p.led.moduleSpacingMm = 120
+    p.led.modulePowerW = 1.44
+    const voltage = 12
+
+    // 11a. 按字分区：每个字整套在同一区（断言字不跨区）
+    p.zone.strategy = 'byChar'
+    p.zone.psuTierW = 150
+    p.zone.feederMm = 300
+    const byChar = planZoning(lay.chars, p.led, voltage, preset.psu.tiers, wiring, p.zone, p.layout.panel.hMm)
+    const charZones = new Map<string, number[]>()
+    for (const z of byChar.zones) for (const c of z.chars) charZones.set(`${c.charIndex}`, (charZones.get(`${c.charIndex}`) ?? []).concat(z.zoneNo))
+    const noSplit = [...charZones.values()].every((zs) => zs.length === 1)
+    const capOk = byChar.zones.every((z) => !z.overCapacity && z.loadW <= z.usableW)
+    ev.push(
+      `按字分区（150W 档，可用 ${byChar.usableW}W）：${byChar.zoneCount} 区 / ${byChar.psuCount} 台，每区 ${byChar.zones
+        .map((z) => `${z.zoneNo}:${z.chars.map((c) => c.char).join('')} ${z.modules}只/${z.loadW}W`)
+        .join('；')}`
+    )
+    ev.push(`字不跨区=${noSplit}；各区功率≤可用功率=${capOk}；跨区字 ${byChar.splitChars.length} 个`)
+
+    // 11b. 就近分区（同一套输入换走法）：允许字跨区，并给出接法说明
+    p.zone.strategy = 'byProximity'
+    const byProx = planZoning(lay.chars, p.led, voltage, preset.psu.tiers, wiring, p.zone, p.layout.panel.hMm)
+    const splitCovered = byProx.splitChars.every((s) => s.zoneNos.length >= 2 && s.blocksByZone.every((b) => b.blocks.length > 0) && s.instruction.length > 0)
+    const splitBlocksComplete = byProx.splitChars.every(
+      (s) =>
+        s.blocksByZone.reduce((n, b) => n + b.blocks.length, 0) ===
+        byProx.zones.reduce((n, z) => n + z.atomKeys.filter((k) => k.startsWith(`${s.charIndex}-`)).length, 0)
+    )
+    ev.push(
+      `就近分区：${byProx.zoneCount} 区 / ${byProx.psuCount} 台，分区线合计 ${(byProx.totalWireMm / 1000).toFixed(2)}m；跨区字 ${
+        byProx.splitChars.length
+      } 个（${byProx.splitChars.map((s) => `「${s.char}」${s.zoneNos.join('/')}`).join('、') || '无'}），接法齐全=${splitCovered}，块归属完整=${splitBlocksComplete}`
+    )
+    // 两种走法模组总数一致（只是分区方式不同，料量口径统一）
+    const moduleConsistent = byChar.totalModules === byProx.totalModules
+
+    // 11c. 换更小电源（60W）：区数变多；沿用同一走法，diff 能列出差别
+    p.zone.strategy = 'byProximity'
+    p.zone.psuTierW = 60
+    const small = planZoning(lay.chars, p.led, voltage, preset.psu.tiers, wiring, p.zone, p.layout.panel.hMm)
+    const baseline = toSnapshot({ ...p.zone, psuTierW: 150 }, byProx)
+    const d = diffZoning(baseline, small)
+    const diffCountsChange = d.items.some((i) => i.text.includes('分区数'))
+    ev.push(`60W 档重划（沿用就近走法）：${small.zoneCount} 区，diff 条目 ${d.items.length} 条；列出分区数变化=${diffCountsChange}`)
+
+    // 11d. 拦截：手动指定偏小电源（15W，可用 12W）且按字分区——存在单字超容量必须拦住，
+    //      并给「换大电源 / 缩小分区」改法
+    p.zone.strategy = 'byChar'
+    p.zone.psuTierW = 15
+    const blocked = planZoning(lay.chars, p.led, voltage, preset.psu.tiers, wiring, p.zone, p.layout.panel.hMm)
+    const hasOver = blocked.zones.some((z) => z.overCapacity)
+    const fixHasBigger = blocked.fixes.some((f) => f.includes('换大电源'))
+    const fixHasSmaller = blocked.fixes.some((f) => f.includes('缩小分区'))
+    ev.push(`15W 按字分区：ok=${blocked.ok}，越界区=${blocked.zones.filter((z) => z.overCapacity).length}，给换大电源=${fixHasBigger}、缩小分区=${fixHasSmaller}`)
+
+    // 11e. 压降拦截：把引线段加到极长，最粗线径下压降仍超标；改法必须含换更粗线/电源就近
+    p.zone.strategy = 'byChar'
+    p.zone.psuTierW = 150
+    p.zone.feederMm = 300
+    const normal = planZoning(lay.chars, p.led, voltage, preset.psu.tiers, wiring, p.zone, p.layout.panel.hMm)
+    p.zone.feederMm = 20000
+    const longWire = planZoning(lay.chars, p.led, voltage, preset.psu.tiers, wiring, p.zone, p.layout.panel.hMm)
+    const longFails = !longWire.ok && longWire.blockReasons.some((r) => r.includes('压降'))
+    const fixHasThicker = longWire.fixes.some((f) => f.includes('换更粗的线'))
+    ev.push(
+      `引线 20000mm：校核通过=${longWire.ok}（应不通过，压降拦截=${longFails}）；改法含换更粗线=${fixHasThicker}；正常引线 300mm 下首区 ${
+        normal.zones[0]?.wire.dropV ?? '-'
+      }V/${normal.zones[0]?.wire.spec ?? '-'}，整体通过=${normal.ok}`
+    )
+
+    // 11f. 两位小数边界：结果数值（负载/线长/电流/压降/线径系数）均为两位小数
+    const all2 = (v: number): boolean => Math.abs(round2z(v) - v) < 1e-9
+    const precisionOk =
+      byChar.zones.every(
+        (z) =>
+          all2(z.loadW) &&
+          all2(z.wireMm) &&
+          all2(z.wire.currentA) &&
+          all2(z.wire.dropV) &&
+          all2(p.zone.resistivity) &&
+          all2(z.usableW)
+      ) && all2(byChar.totalLoadW) && all2(byChar.totalWireMm)
+    ev.push(`两位小数口径（规模/线径系数/压降）：${precisionOk ? '全部满足' : '存在非两位小数值'}`)
+
+    // 11g. BOM 跟随分区：电源台数 = 区数；线损不通过时 BOM 拦截
+    const bomProj = makeProject('acc11b', '广告招牌制作工程部', 300, 'center', { wMm: 6000, hMm: 1000, frameMm: 60 })
+    bomProj.ledModuleId = 'led-12v-144-120'
+    bomProj.led.moduleSpacingMm = 120
+    bomProj.led.modulePowerW = 1.44
+    bomProj.zone.strategy = 'byProximity'
+    bomProj.zone.psuTierW = 150
+    const bomLay = computeLayout(bomProj.layout)
+    const bom = buildBom(bomProj, bomLay, preset)
+    const psuRow = bom.materials.find((m) => m.kind === 'psu')
+    const wireRows = bom.materials.filter((m) => m.kind === 'glue' && m.spec.includes('分区线损校核汇总'))
+    const bomFollowsZone =
+      !!bom.zoning && !!psuRow && psuRow.qty === bom.zoning.psuCount && psuRow.spec.includes(`${bom.zoning.psuTierW}W`) && wireRows.length > 0
+    const sumOk = assertBomSum(bom).ok
+    ev.push(
+      `BOM 跟随分区：电源 ${psuRow?.spec}×${psuRow?.qty}（区数 ${bom.zoning?.zoneCount}），分区线材 ${wireRows
+        .map((w) => `${w.spec.split('（')[0]} ${w.qty}m`)
+        .join('、')}；Σ明细=合计=${sumOk}`
+    )
+
+    checks.push({
+      id: 'A11',
+      title: '供电分区与线损校核：两种走法、容量/压降拦截与改法、重划沿用走法并列出差别、两位小数、材料/BOM 跟随分区',
+      pass:
+        noSplit &&
+        capOk &&
+        splitCovered &&
+        splitBlocksComplete &&
+        moduleConsistent &&
+        diffCountsChange &&
+        byProx.zoneCount <= byChar.zoneCount &&
+        hasOver &&
+        !blocked.ok &&
+        fixHasBigger &&
+        fixHasSmaller &&
+        longFails &&
+        fixHasThicker &&
+        precisionOk &&
+        bomFollowsZone &&
+        sumOk &&
+        normal.ok,
+      detail: `按字 ${byChar.zoneCount} 区 / 就近 ${byProx.zoneCount} 区；跨区字 ${byProx.splitChars.length} 个；拦截与改法、精度、BOM 均已核验`,
+      evidence: ev
     })
   }
 

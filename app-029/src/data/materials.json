@@ -78,6 +78,21 @@
     "pricePerWattCents": 180,
     "parallelNote": "超出常用档位（>400W）：需多电源并联/分区供电，建议按字分区，每区单独配电源"
   },
+  "wiring": {
+    "usableRatio": 0.80,
+    "maxDropV": 0.60,
+    "resistivity": 0.02,
+    "feederMm": 300,
+    "wirePriceCentsPerM": 320,
+    "spec": "RVV 2芯电源线（按分区线长汇总）",
+    "gauges": [
+      { "mm2": 0.50, "spec": "RVV 2×0.50mm²", "ampacityA": 3.00 },
+      { "mm2": 0.75, "spec": "RVV 2×0.75mm²", "ampacityA": 6.00 },
+      { "mm2": 1.00, "spec": "RVV 2×1.00mm²", "ampacityA": 10.00 },
+      { "mm2": 1.50, "spec": "RVV 2×1.50mm²", "ampacityA": 15.00 },
+      { "mm2": 2.50, "spec": "RVV 2×2.50mm²", "ampacityA": 24.00 }
+    ]
+  },
   "consumables": [
     {
       "id": "glue",

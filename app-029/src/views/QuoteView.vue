@@ -16,11 +16,14 @@ const project = computed(() => loaded.value)
 const layout = session.layout
 const preset = session.preset
 const ack = ref(false)
+const ackZone = ref(false)
 const mode = ref<'quote' | 'card'>('quote')
 const printed = ref(false)
 
 const bom = computed(() =>
-  project.value && layout.value ? buildBom(project.value, layout.value, preset.value, { acknowledgeThinStroke: ack.value }) : null
+  project.value && layout.value
+    ? buildBom(project.value, layout.value, preset.value, { acknowledgeThinStroke: ack.value, acknowledgeZoning: ackZone.value })
+    : null
 )
 const fontLabel = computed(() => {
   const p = project.value
@@ -75,7 +78,7 @@ function toCsv(): void {
 
       <div v-if="bom?.blocked" class="banner bad no-print">
         <b>工艺风险拦截：</b>{{ bom.blockReasons.join('；') }}
-        <button class="primary" style="margin-left: 8px" @click="ack = true">已确认风险，继续出报价</button>
+        <button class="primary" style="margin-left: 8px" @click="ack = true; ackZone = true">已确认风险，继续出报价草稿</button>
       </div>
       <div v-else-if="ack" class="banner warn no-print">已确认工艺风险：最细笔画低于工艺下限的字符按加粗/换字体处理后再下单。</div>
 
@@ -209,6 +212,57 @@ function toCsv(): void {
               </tr>
             </tbody>
           </table>
+
+          <template v-if="bom.zoning">
+            <h3 style="margin-top: 12px">供电分区与线损校核（{{ bom.zoning.strategy === 'byChar' ? '按字逐个分区' : '按面板位置就近分区' }}）</h3>
+            <table>
+              <thead>
+                <tr>
+                  <th>区号</th>
+                  <th>区内字</th>
+                  <th class="num">模组</th>
+                  <th class="num">负载 W</th>
+                  <th class="num">线长 m</th>
+                  <th class="num">最远电流 A</th>
+                  <th class="num">最远压降 V</th>
+                  <th>建议线径</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="z in bom.zoning.zones" :key="z.zoneNo">
+                  <td>{{ z.zoneNo }}</td>
+                  <td>{{ z.chars.map((c) => c.char).join('') }}</td>
+                  <td class="num">{{ z.modules }}</td>
+                  <td class="num">{{ z.loadW.toFixed(2) }}</td>
+                  <td class="num">{{ (z.wireMm / 1000).toFixed(2) }}</td>
+                  <td class="num">{{ z.wire.currentA.toFixed(2) }}</td>
+                  <td class="num">{{ z.wire.dropV.toFixed(2) }}</td>
+                  <td>{{ z.wire.spec }}</td>
+                </tr>
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td colspan="2">合计 {{ bom.zoning.zoneCount }} 区 · 电源 {{ bom.zoning.psuTierW }}W×{{ bom.zoning.psuCount }} 台</td>
+                  <td class="num">{{ bom.zoning.totalModules }}</td>
+                  <td class="num">{{ bom.zoning.totalLoadW.toFixed(2) }}</td>
+                  <td class="num">{{ (bom.zoning.totalWireMm / 1000).toFixed(2) }}</td>
+                  <td colspan="3"></td>
+                </tr>
+              </tfoot>
+            </table>
+            <table v-if="bom.zoning.splitChars.length" style="margin-top: 8px">
+              <thead>
+                <tr><th>跨区字</th><th>接入区</th><th>接法</th></tr>
+              </thead>
+              <tbody>
+                <tr v-for="s in bom.zoning.splitChars" :key="s.charIndex">
+                  <td style="font-weight: 700">{{ s.char }}</td>
+                  <td>{{ s.zoneNos.join('、') }} 区</td>
+                  <td class="muted">{{ s.instruction }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </template>
           <p class="muted" style="margin-top: 10px">
             工艺要求：异形面板按外接矩形下料；笔画块数量决定分件数量；最细笔画低于工艺下限的字符需加粗或换字体；LED 布点沿外轮廓均匀分布。
           </p>

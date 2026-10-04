@@ -156,6 +156,46 @@ function removeSheet(i: number): void {
           <div class="ctl"><input type="number" v-model.number="preset.psu.pricePerWattCents" step="10" /></div>
         </div>
 
+        <h3 style="margin-top: 14px">分区与线损校核</h3>
+        <div class="field">
+          <label>电源可用功率比例（降额）</label>
+          <div class="ctl"><input type="number" v-model.number="preset.wiring.usableRatio" min="0.1" max="1" step="0.05" /></div>
+        </div>
+        <div class="field">
+          <label>最远灯珠压降上限（V）</label>
+          <div class="ctl"><input type="number" v-model.number="preset.wiring.maxDropV" min="0.05" step="0.05" /></div>
+        </div>
+        <div class="field">
+          <label>线径系数 ρ（Ω·mm²/m，两位小数）</label>
+          <div class="ctl">
+            <input type="number" v-model.number="preset.wiring.resistivity" min="0.01" step="0.01" />
+            <span class="muted">铜芯线 0.02</span>
+          </div>
+        </div>
+        <div class="field">
+          <label>每区引线长度（mm）</label>
+          <div class="ctl"><input type="number" v-model.number="preset.wiring.feederMm" min="0" step="10" /></div>
+        </div>
+        <div class="field">
+          <label>电源线单价（分/米）</label>
+          <div class="ctl"><input type="number" v-model.number="preset.wiring.wirePriceCentsPerM" step="10" /></div>
+        </div>
+        <table>
+          <thead>
+            <tr><th>线径规格</th><th class="num">截面积 mm²</th><th class="num">允许载流 A</th></tr>
+          </thead>
+          <tbody>
+            <tr v-for="(g, i) in preset.wiring.gauges" :key="i">
+              <td><input type="text" v-model="g.spec" style="width: 100%" /></td>
+              <td class="num"><input type="number" v-model.number="g.mm2" min="0.1" step="0.05" style="width: 80px" /></td>
+              <td class="num"><input type="number" v-model.number="g.ampacityA" min="0.1" step="0.1" style="width: 80px" /></td>
+            </tr>
+          </tbody>
+        </table>
+        <p class="muted" style="margin-top: 6px">
+          每区按「引线 + 链式走线」算线长；最远灯珠压降 = Σ 2ρLI/线径（两位小数后判界线），取同时满足压降与载流的最细线径。
+        </p>
+
         <h3 style="margin-top: 14px">胶与配件</h3>
         <table>
           <thead>
@@ -218,7 +258,8 @@ function removeSheet(i: number): void {
         </div>
         <p class="muted" style="margin-top: 6px">
           覆盖：排版正确性与建议字号、视觉间距极差、20 字连通域与最细笔画、低于工艺下限的警告与拦截、LED 与电源档位、板材拼版利用率、
-          金额整数分合计、断网可用与 12 字性能；另含两套独立算法互验（扫描线并查集 vs 光栅洪泛）。
+          金额整数分合计、断网可用与 12 字性能、<b>供电分区两种走法与跨区字接法、容量/线损/线径拦截与改法、重划差别、两位小数口径、BOM 跟随分区（A11）</b>；
+          另含两套独立算法互验（扫描线并查集 vs 光栅洪泛）。
         </p>
 
         <div v-if="report" style="margin-top: 10px">
